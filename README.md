@@ -195,6 +195,10 @@ For the full environment-variable reference, see
 For release-candidate validation across multiple local configurations, see the
 [configuration lab](docs/CONFIG_LAB.md).
 
+To let Claude or other AI clients edit drawings as live collaborators, see
+[AI agents (MCP)](docs/MCP.md), including step-by-step setup for Claude Desktop
+and Claude Code.
+
 # Development
 
 For contributor workflow, `make dev` starts the app in local single-user mode so you can reproduce editor bugs without going through login/onboarding. Use `make dev-auth` if you need to test local auth or OIDC flows from your `backend/.env`.

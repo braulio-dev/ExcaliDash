@@ -75,7 +75,7 @@ export const McpCard: React.FC<{ isAdmin: boolean; setError: (message: string) =
   };
 
   const endpoint = status?.endpointUrl ?? '';
-  const claudeCode = `claude mcp add --transport http excalidash ${endpoint} --header "Authorization: Bearer <your API key>"`;
+  const claudeCode = `claude mcp add --transport http --scope user excalidash ${endpoint} --header "Authorization: Bearer <your API key>"`;
 
   return (
     <div className={cardClassName}>
@@ -126,8 +126,10 @@ export const McpCard: React.FC<{ isAdmin: boolean; setError: (message: string) =
         <p className="text-xs text-slate-600 dark:text-neutral-400">
           Each person uses their own API key from{' '}
           <Link to="/profile" className="font-bold underline">Profile → API keys</Link>; the AI then has exactly
-          that person's access. Claude Desktop and other clients connect to the same endpoint with the key in an{' '}
-          <code className="font-mono">Authorization: Bearer</code> header.
+          that person's access. In Claude Desktop, use Settings → Connectors → Add custom connector with
+          {' '}<strong>No sign-in</strong> and a request header <code className="font-mono">Authorization</code> ={' '}
+          <code className="font-mono">Bearer &lt;key&gt;</code>. Full steps:{' '}
+          <a href="https://github.com/braulio-dev/ExcaliDash/blob/main/docs/MCP.md#setup" target="_blank" rel="noreferrer" className="font-bold underline">setup guide</a>.
         </p>
       </div>
 
