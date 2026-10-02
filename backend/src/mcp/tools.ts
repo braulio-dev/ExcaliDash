@@ -88,8 +88,11 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
   }, ({ search, limit }) => guard(async () => {
     const drawings = await ctx.prisma.drawing.findMany({
       where: {
-        OR: [{ userId: ctx.userId }, { permissions: { some: { granteeUserId: ctx.userId, hidden: false } } }],
-        NOT: { collectionId: getUserTrashCollectionId(ctx.userId) },
+        AND: [
+          { OR: [{ userId: ctx.userId }, { permissions: { some: { granteeUserId: ctx.userId, hidden: false } } }] },
+          // Spelled out because NOT(collectionId = trash) also drops drawings with no collection (SQL NULL).
+          { OR: [{ collectionId: null }, { collectionId: { not: getUserTrashCollectionId(ctx.userId) } }] },
+        ],
         ...(search ? { name: { contains: search } } : {}),
       },
       orderBy: { updatedAt: "desc" },

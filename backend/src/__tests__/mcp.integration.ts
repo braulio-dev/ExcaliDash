@@ -160,6 +160,21 @@ describe("MCP endpoint", () => {
     expect(again.status).toBe(409);
   });
 
+  it("lists drawings outside any collection but not trashed ones", async () => {
+    const kept = await call("create_drawing", { name: "Loose drawing" });
+    const trashed = await call("create_drawing", { name: "Trashed drawing" });
+    await prisma.collection.upsert({
+      where: { id: `trash:${admin.userId}` },
+      update: {},
+      create: { id: `trash:${admin.userId}`, name: "Trash", userId: admin.userId },
+    });
+    await prisma.drawing.update({ where: { id: trashed.data.id }, data: { collectionId: `trash:${admin.userId}` } });
+    const listed = await call("list_drawings", { limit: 100 });
+    const ids = listed.data.map((d: any) => d.id);
+    expect(ids).toContain(kept.data.id);
+    expect(ids).not.toContain(trashed.data.id);
+  });
+
   it("reports invalid operations as tool errors without changing the drawing", async () => {
     const { data } = await call("create_drawing", { name: "Errors" });
     const bad = await call("edit_drawing", {
