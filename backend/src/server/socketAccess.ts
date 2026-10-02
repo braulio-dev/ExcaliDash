@@ -12,6 +12,8 @@ export interface PresenceUser {
   color: string;
   socketId: string;
   isActive: boolean;
+  // Set for server-side AI (MCP) participants, which have no real socket.
+  kind?: "agent";
 }
 
 type AccessCacheEntry = {

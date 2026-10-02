@@ -50,6 +50,7 @@ const ExcalidrawEditor: React.FC = () => {
   const [langCode, setLangCode] = usePreference("language", getInitialLangCode());
   const [gridStep, setGridStep] = usePreference("gridStep", DEFAULT_GRID_STEP);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isAgentChangesOpen, setIsAgentChangesOpen] = useState(false);
   const previewBackup = useRef<{
     elements: readonly any[];
     appState: any;
@@ -356,6 +357,7 @@ const ExcalidrawEditor: React.FC = () => {
         onSetGridStep={setGridStep}
         onShareOpen={() => setIsShareOpen(true)}
         onHistoryOpen={() => setIsHistoryOpen(true)}
+        onAgentChangesOpen={() => setIsAgentChangesOpen(true)}
         onToggleAutoHide={handleToggleAutoHide}
       />
       <EditorDialogs
@@ -363,9 +365,11 @@ const ExcalidrawEditor: React.FC = () => {
         drawingName={drawingName}
         excalidrawAPIRef={excalidrawAPI}
         isHistoryOpen={isHistoryOpen}
+        isAgentChangesOpen={isAgentChangesOpen}
         isShareOpen={isShareOpen}
         previewBackupRef={previewBackup}
         onCloseHistory={() => setIsHistoryOpen(false)}
+        onCloseAgentChanges={() => setIsAgentChangesOpen(false)}
         onCloseShare={() => setIsShareOpen(false)}
       />
     </>

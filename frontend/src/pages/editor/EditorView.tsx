@@ -2,6 +2,7 @@ import React from "react";
 import { Excalidraw, MainMenu } from "@excalidraw/excalidraw";
 import {
   ArrowLeft,
+  Bot,
   ChevronDown,
   ChevronUp,
   CloudOff,
@@ -21,6 +22,7 @@ import { UIOptions } from "./shared";
 
 interface Peer extends UserIdentity {
   isActive: boolean;
+  kind?: "agent";
 }
 
 type EditorViewProps = {
@@ -59,6 +61,7 @@ type EditorViewProps = {
   onSetGridStep: (gridStep: number) => void;
   onShareOpen: () => void;
   onHistoryOpen: () => void;
+  onAgentChangesOpen: () => void;
   onToggleAutoHide: () => void;
 };
 
@@ -66,10 +69,12 @@ const UserAvatar = ({
   user,
   label,
   inactive = false,
+  isAgent = false,
 }: {
   user: UserIdentity;
   label: string;
   inactive?: boolean;
+  isAgent?: boolean;
 }) => (
   <div className="relative group">
     <div
@@ -81,6 +86,11 @@ const UserAvatar = ({
     >
       {user.initials}
     </div>
+    {isAgent ? (
+      <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-white dark:bg-neutral-900 border border-gray-300 dark:border-neutral-600 flex items-center justify-center">
+        <Bot size={10} className="text-gray-700 dark:text-gray-200" />
+      </div>
+    ) : null}
     <div className="absolute top-full mt-2 right-0 bg-gray-900 text-white text-xs py-1 px-2 rounded whitespace-nowrap z-50 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
       {label}
     </div>
@@ -123,6 +133,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   onSetGridStep,
   onShareOpen,
   onHistoryOpen,
+  onAgentChangesOpen,
   onToggleAutoHide,
 }) => (
   <div className="h-screen flex flex-col bg-white dark:bg-neutral-950 overflow-hidden">
@@ -193,6 +204,15 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <History size={20} />
           </button>
         ) : null}
+        {canEdit && id ? (
+          <button
+            onClick={onAgentChangesOpen}
+            className="p-2 hover:bg-gray-100 dark:hover:bg-neutral-800 rounded-lg text-gray-600 dark:text-gray-300 transition-colors"
+            title="AI changes"
+          >
+            <Bot size={20} />
+          </button>
+        ) : null}
         {accessLevel === "owner" && id ? (
           <button
             onClick={onShareOpen}
@@ -226,8 +246,9 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <UserAvatar
                 key={peer.id}
                 user={peer}
-                label={peer.name}
+                label={peer.kind === "agent" ? `${peer.name} (AI)` : peer.name}
                 inactive={!peer.isActive}
+                isAgent={peer.kind === "agent"}
               />
             ))}
           </div>

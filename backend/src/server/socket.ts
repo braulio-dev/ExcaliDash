@@ -16,6 +16,7 @@ import {
   type RevalidatableSocket,
   type SocketState,
 } from "./socketAccess";
+import { createAgentPresence, type AgentPresence } from "./agentPresence";
 
 type RegisterSocketHandlersDeps = {
   io: Server;
@@ -28,6 +29,8 @@ export type SocketHandlers = {
   // Re-check access for every socket currently in a drawing's room; used by the
   // sharing routes to kick collaborators the moment their access is revoked.
   revalidateDrawingAccess: (drawingId: string) => Promise<void>;
+  // Lets MCP agents appear and edit as live collaborators.
+  agentPresence: AgentPresence;
 };
 
 export const registerSocketHandlers = ({
@@ -380,5 +383,8 @@ export const registerSocketHandlers = ({
     });
   };
 
-  return { revalidateDrawingAccess };
+  return {
+    revalidateDrawingAccess,
+    agentPresence: createAgentPresence({ io, roomUsers }),
+  };
 };

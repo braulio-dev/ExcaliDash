@@ -9,6 +9,7 @@ import { AccessControlCard } from "./admin/AccessControlCard";
 import { AdminHeader, AdminStatusMessages } from "./admin/AdminShell";
 import { CreateUserForm } from "./admin/CreateUserForm";
 import { LoginRateLimitCard } from "./admin/LoginRateLimitCard";
+import { McpCard } from "./admin/McpCard";
 import { UserActionModals } from "./admin/UserActionModals";
 import { UsersTable } from "./admin/UsersTable";
 import type { AdminUser } from "./admin/types";
@@ -321,6 +322,7 @@ export const Admin: React.FC = () => {
         onResetIdentifierChange={loginRateLimit.setResetIdentifier}
         onReset={loginRateLimit.reset}
       />{" "}
+      <McpCard isAdmin={isAdmin} setError={setError} />{" "}
       <UsersTable
         users={users}
         loading={loadingUsers}

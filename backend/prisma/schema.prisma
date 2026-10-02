@@ -45,6 +45,8 @@ model SystemConfig {
   bootstrapSetupCodeIssuedAt DateTime?
   bootstrapSetupCodeExpiresAt DateTime?
   bootstrapSetupCodeFailedAttempts Int @default(0)
+  // Admin kill-switch for the MCP endpoint that lets AI agents edit drawings.
+  mcpEnabled                 Boolean  @default(true)
   // Admin kill-switch for the per-user ChatGPT (subscription) provider. Null =
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
@@ -80,6 +82,7 @@ model Drawing {
   permissions  DrawingPermission[]
   linkShares   DrawingLinkShare[]
   snapshots    DrawingSnapshot[]
+  agentChanges AgentChange[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -96,6 +99,31 @@ model DrawingSnapshot {
   appState  String   // JSON string
   files     String   @default("{}")
   createdAt DateTime @default(now())
+
+  @@index([drawingId, createdAt])
+  @@index([createdAt])
+}
+
+// One AI (MCP) edit applied to a drawing. `before`/`after` hold the touched
+// elements keyed by id (null in `before` = the agent created it), so the edit
+// can be undone or redone independently of the editor's local history.
+// `expected` holds each element as last written by this change (or its
+// undo/redo); if the live element no longer matches it, someone edited it
+// since and undo/redo leaves it alone.
+model AgentChange {
+  id         String    @id @default(uuid())
+  drawingId  String
+  drawing    Drawing   @relation(fields: [drawingId], references: [id], onDelete: Cascade)
+  userId     String
+  sessionId  String
+  agentName  String
+  agentColor String
+  summary    String
+  before     String
+  after      String
+  expected   String
+  undoneAt   DateTime?
+  createdAt  DateTime  @default(now())
 
   @@index([drawingId, createdAt])
   @@index([createdAt])

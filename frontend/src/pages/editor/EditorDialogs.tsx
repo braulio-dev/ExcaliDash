@@ -2,6 +2,7 @@ import React from "react";
 import { CaptureUpdateAction } from "@excalidraw/excalidraw";
 import { ShareModal } from "../../components/ShareModal";
 import { HistoryPanel } from "../../components/HistoryPanel";
+import { AgentChangesPanel } from "../../components/AgentChangesPanel";
 
 type PreviewBackup = {
   elements: readonly any[];
@@ -14,9 +15,11 @@ type EditorDialogsProps = {
   drawingName: string;
   excalidrawAPIRef: React.MutableRefObject<any>;
   isHistoryOpen: boolean;
+  isAgentChangesOpen: boolean;
   isShareOpen: boolean;
   previewBackupRef: React.MutableRefObject<PreviewBackup | null>;
   onCloseHistory: () => void;
+  onCloseAgentChanges: () => void;
   onCloseShare: () => void;
 };
 
@@ -25,9 +28,11 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
   drawingName,
   excalidrawAPIRef,
   isHistoryOpen,
+  isAgentChangesOpen,
   isShareOpen,
   previewBackupRef,
   onCloseHistory,
+  onCloseAgentChanges,
   onCloseShare,
 }) => {
   if (!drawingId) return null;
@@ -39,6 +44,11 @@ export const EditorDialogs: React.FC<EditorDialogsProps> = ({
         drawingName={drawingName}
         isOpen={isShareOpen}
         onClose={onCloseShare}
+      />
+      <AgentChangesPanel
+        drawingId={drawingId}
+        isOpen={isAgentChangesOpen}
+        onClose={onCloseAgentChanges}
       />
       <HistoryPanel
         drawingId={drawingId}

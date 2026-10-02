@@ -6,9 +6,11 @@ import type { UserIdentity } from "../../utils/identity";
 import { filesNeedRehydration, rehydrateFilesFromUrls } from "../../utils/rehydrateFiles";
 import { buildRemoteSceneUpdate } from "./shared";
 import { attachCanvasZoomForwarding } from "./canvasZoomForwarding";
+import { handleAgentChangeEvent } from "./agentChangeNotifications";
 
 interface Peer extends UserIdentity {
   isActive: boolean;
+  kind?: "agent";
 }
 
 type UseEditorCollaborationInput = {
@@ -139,6 +141,12 @@ export const useEditorCollaboration = ({
             collaborators.delete(user.id);
           }
         });
+        // Drop cursors of participants who left the room entirely (closed
+        // tab, ended AI session), not just those marked inactive.
+        const presentIds = new Set(users.map((user) => user.id));
+        for (const collaboratorId of [...collaborators.keys()]) {
+          if (!presentIds.has(collaboratorId)) collaborators.delete(collaboratorId);
+        }
         const { sceneUpdate } = buildRemoteSceneUpdate({ collaborators });
         if (sceneUpdate) {
           excalidrawAPI.current.updateScene(sceneUpdate);
@@ -277,6 +285,7 @@ export const useEditorCollaboration = ({
         scheduleRemoteFlush();
       },
     );
+    socket.on("agent-change", handleAgentChangeEvent);
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
       if (!payload?.drawingId || payload.drawingId !== drawingId) return;
       toast.info("Drawing storage changed on the server. Reloading the editor.");
@@ -307,6 +316,7 @@ export const useEditorCollaboration = ({
       socket.off("cursor-move");
       socket.off("element-update");
       socket.off("drawing-server-update");
+      socket.off("agent-change");
       socket.disconnect();
       if (remoteFlushRafIdRef.current !== null) {
         cancelAnimationFrame(remoteFlushRafIdRef.current);
