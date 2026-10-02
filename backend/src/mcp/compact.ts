@@ -31,6 +31,10 @@ export const compactElement = (el: SceneElement, labels: Map<string, SceneElemen
   if (el.roundness) out.rounded = true;
   if (el.groupIds?.length) out.groupIds = el.groupIds;
   if (el.locked) out.locked = true;
+  if (el.frameId) out.frameId = el.frameId;
+  if (el.type === "frame") out.name = el.name ?? null;
+  if (el.type === "image") out.fileId = el.fileId;
+  if (el.type === "freedraw") out.pointCount = (el.points ?? []).length;
   if (el.link) out.link = el.link;
   if (el.type === "text") {
     out.text = el.text;

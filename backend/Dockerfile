@@ -33,7 +33,8 @@ RUN npx tsc
 FROM node:20-alpine
 
 # Install runtime packages and create non-root user
-RUN apk add --no-cache openssl su-exec && \
+# (font-dejavu: text in MCP image exports, which are rendered server-side)
+RUN apk add --no-cache openssl su-exec font-dejavu && \
     addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
 

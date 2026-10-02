@@ -1,9 +1,13 @@
 import type { PrismaClient } from "../generated/client";
 import { applySceneUpdateTx } from "../routes/dashboard/sceneUpdate";
 import { sanitizeDrawingData } from "../security";
+import { internDrawingFiles } from "../fileProcessing";
 import type { AgentIdentity, AgentPresence } from "../server/agentPresence";
 import { bump, type SceneElement } from "./elements";
+import { replayToEditors, type ReplayExtras } from "./replay";
 import { applySceneOperations, type SceneOperation, type TouchedState } from "./sceneOps";
+
+export { replayToEditors } from "./replay";
 
 // Persists agent edits as undoable change sets and replays them to open
 // editors through the agent's live-collaborator presence.
@@ -17,6 +21,14 @@ export type ChangeDeps = {
 
 // Each touched element as this change (or its last undo/redo) left it.
 type Expected = Record<string, SceneElement | null>;
+
+// Pseudo-entries stored next to element ids in before/after for the parts of
+// a change that are not element edits.
+const APP_STATE_KEY = "@appState";
+const ORDER_KEY = "@order";
+const isMetaKey = (key: string) => key.startsWith("@");
+type Meta = { viewBackgroundColor?: string; ids?: string[] };
+const meta = (state: Record<string, unknown>, key: string) => state[key] as Meta | undefined;
 
 export class ChangeError extends Error {
   constructor(message: string, readonly status: 404 | 409 = 409) {
@@ -53,47 +65,23 @@ export const isUnchangedSince = (current: SceneElement | undefined, expected: Sc
   );
 };
 
-// Shapes first and connectors last, so arrows never reach a client before the
-// shapes they attach to.
-const replayRank = (el: SceneElement) =>
-  el.type === "arrow" || el.type === "line" ? 2 : el.type === "text" && !el.containerId ? 1 : 0;
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Stream elements to open editors one at a time with the agent's cursor on
-// each, so edits are watchable. Skipped when nobody has the drawing open.
-export const replayToEditors = async (
-  presence: AgentPresence,
-  drawingId: string,
-  agent: AgentIdentity | null,
-  elements: SceneElement[],
-) => {
-  if (!presence.isWatched(drawingId) || elements.length === 0) {
-    presence.broadcastElements(drawingId, elements);
-    return;
-  }
-  const byId = new Map(elements.map((el) => [el.id, el]));
-  const steps = elements
-    .filter((el) => !(el.type === "text" && el.containerId && byId.has(el.containerId)))
-    .sort((a, b) => replayRank(a) - replayRank(b));
-  const delay = Math.max(40, Math.min(220, 3500 / steps.length));
-  for (const el of steps) {
-    const group = [el, ...elements.filter((t) => t.type === "text" && t.containerId === el.id)];
-    if (agent) {
-      presence.moveCursor(drawingId, agent, { x: el.x + el.width / 2, y: el.y + el.height / 2 }, el.isDeleted ? [] : [el.id]);
-    }
-    presence.broadcastElements(drawingId, group);
-    await sleep(delay);
-  }
-  presence.broadcastElements(drawingId, elements);
-  if (agent) presence.moveCursor(drawingId, agent, { x: steps[steps.length - 1].x, y: steps[steps.length - 1].y - 40 }, []);
-};
-
 export const applyAgentEdit = async (
   deps: ChangeDeps,
-  args: { drawingId: string; userId: string; agent: AgentIdentity; summary: string; operations: SceneOperation[] },
+  args: {
+    drawingId: string;
+    userId: string;
+    agent: AgentIdentity;
+    summary: string;
+    operations: SceneOperation[];
+    files?: Record<string, unknown>;
+    background?: string;
+  },
 ) => {
   let result: ReturnType<typeof applySceneOperations> | null = null;
+  let backgroundBefore = "#ffffff";
+  const files = args.files && Object.keys(args.files).length
+    ? await internDrawingFiles(args.files, args.userId, args.drawingId, deps.prisma)
+    : undefined;
   const { drawing } = await applySceneUpdateTx({
     prisma: deps.prisma,
     drawingId: args.drawingId,
@@ -103,15 +91,33 @@ export const applyAgentEdit = async (
     mutate: (current) => {
       const elements = deps.parseJsonField<SceneElement[]>(current.elements, []);
       const applied = applySceneOperations(elements, args.operations);
-      if (applied.touchedOrder.length === 0) throw new ChangeError("The operations did not change anything");
+      if (applied.touchedOrder.length === 0 && !applied.orderBefore && !args.background) {
+        throw new ChangeError("The operations did not change anything");
+      }
       const sanitized = sanitize(applied.elements);
       const byId = new Map(sanitized.map((el) => [el.id, el]));
       for (const id of Object.keys(applied.after)) applied.after[id] = byId.get(id) ?? applied.after[id];
       result = applied;
-      return { data: { elements: JSON.stringify(sanitized) } };
+      const data: Record<string, string> = { elements: JSON.stringify(sanitized) };
+      if (args.background) {
+        const appState = deps.parseJsonField<Record<string, unknown>>(current.appState, {});
+        backgroundBefore = String(appState.viewBackgroundColor ?? "#ffffff");
+        data.appState = JSON.stringify({ ...appState, viewBackgroundColor: args.background });
+      }
+      return { data, ...(files ? { incomingFiles: files } : {}) };
     },
   });
   const applied = result as unknown as ReturnType<typeof applySceneOperations>;
+  const before: Record<string, unknown> = { ...applied.before };
+  const after: Record<string, unknown> = { ...applied.after };
+  if (args.background) {
+    before[APP_STATE_KEY] = { viewBackgroundColor: backgroundBefore };
+    after[APP_STATE_KEY] = { viewBackgroundColor: args.background };
+  }
+  if (applied.orderBefore) {
+    before[ORDER_KEY] = { ids: applied.orderBefore };
+    after[ORDER_KEY] = { ids: applied.order };
+  }
   const change = await deps.prisma.agentChange.create({
     data: {
       drawingId: args.drawingId,
@@ -120,13 +126,17 @@ export const applyAgentEdit = async (
       agentName: args.agent.name,
       agentColor: args.agent.color,
       summary: args.summary.slice(0, 500),
-      before: JSON.stringify(applied.before),
-      after: JSON.stringify(applied.after),
-      expected: JSON.stringify(applied.after),
+      before: JSON.stringify(before),
+      after: JSON.stringify(after),
+      expected: JSON.stringify(after),
     },
   });
   deps.invalidateDrawingsCache();
-  await replayToEditors(deps.presence, args.drawingId, args.agent, applied.touchedOrder.map((id) => applied.after[id]!));
+  await replayToEditors(deps.presence, args.drawingId, args.agent, applied.touchedOrder.map((id) => applied.after[id]!), {
+    files,
+    elementOrder: applied.orderBefore ? applied.order : undefined,
+    background: args.background,
+  });
   deps.presence.emit(args.drawingId, "agent-change", {
     drawingId: args.drawingId, changeId: change.id, kind: "edit", agentName: args.agent.name, agentColor: args.agent.color, summary: change.summary,
   });
@@ -150,9 +160,10 @@ export const revertAgentChange = async (
   const after = JSON.parse(change.after) as TouchedState;
   const expected = JSON.parse(change.expected) as Expected;
   const target = args.direction === "undo" ? before : after;
-  const ownIds = new Set(Object.keys(after));
+  const ownIds = new Set(Object.keys(after).filter((key) => !isMetaKey(key)));
   let applied: SceneElement[] = [];
   let skipped: string[] = [];
+  let extras: ReplayExtras = {};
 
   await applySceneUpdateTx({
     prisma: deps.prisma,
@@ -165,6 +176,18 @@ export const revertAgentChange = async (
       const map = new Map(elements.map((el) => [el.id, el]));
       applied = [];
       skipped = [];
+      extras = {};
+      const data: Record<string, string> = {};
+      const goalBg = meta(target, APP_STATE_KEY)?.viewBackgroundColor;
+      if (goalBg) {
+        const appState = deps.parseJsonField<Record<string, unknown>>(current.appState, {});
+        if ((appState.viewBackgroundColor ?? "#ffffff") === meta(expected, APP_STATE_KEY)?.viewBackgroundColor) {
+          data.appState = JSON.stringify({ ...appState, viewBackgroundColor: goalBg });
+          extras.background = goalBg;
+        } else {
+          skipped.push(APP_STATE_KEY);
+        }
+      }
       for (const id of ownIds) {
         const cur = map.get(id);
         if (!isUnchangedSince(cur, expected[id] ?? null)) {
@@ -186,24 +209,33 @@ export const revertAgentChange = async (
         map.set(id, next);
         applied.push(next);
       }
-      if (applied.length === 0) {
+      const goalOrder = meta(target, ORDER_KEY)?.ids;
+      if (applied.length === 0 && !extras.background && !goalOrder) {
         throw new ChangeError(
           skipped.length ? "Every element in this change was edited since; nothing to revert" : "Nothing to revert",
         );
       }
-      const ordered = [...elements.map((el) => map.get(el.id)!), ...applied.filter((el) => !elements.some((e) => e.id === el.id))];
-      return { data: { elements: JSON.stringify(sanitize(ordered)) } };
+      let ordered = [...elements.map((el) => map.get(el.id)!), ...applied.filter((el) => !elements.some((e) => e.id === el.id))];
+      if (goalOrder) {
+        // Restore the recorded stacking order; elements added since keep their place at the end.
+        const rank = new Map(goalOrder.map((id, i) => [id, i]));
+        ordered = [...ordered].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+        extras.elementOrder = ordered.map((el) => el.id);
+      }
+      data.elements = JSON.stringify(sanitize(ordered));
+      return { data };
     },
   });
 
-  const nextExpected: Expected = { ...expected };
+  const nextExpected: Record<string, unknown> = { ...expected };
   for (const el of applied) nextExpected[el.id] = el;
+  if (extras.background) nextExpected[APP_STATE_KEY] = { viewBackgroundColor: extras.background };
   await deps.prisma.agentChange.update({
     where: { id: change.id },
     data: { undoneAt: args.direction === "undo" ? new Date() : null, expected: JSON.stringify(nextExpected) },
   });
   deps.invalidateDrawingsCache();
-  await replayToEditors(deps.presence, args.drawingId, args.agent, applied);
+  await replayToEditors(deps.presence, args.drawingId, args.agent, applied, extras);
   deps.presence.emit(args.drawingId, "agent-change", {
     drawingId: args.drawingId, changeId: change.id, kind: args.direction, agentName: args.agent?.name ?? null, summary: change.summary,
   });
@@ -217,5 +249,8 @@ export const listAgentChanges = async (prisma: PrismaClient, drawingId: string, 
     take: Math.min(Math.max(limit, 1), 200),
     select: { id: true, sessionId: true, agentName: true, agentColor: true, summary: true, after: true, undoneAt: true, createdAt: true },
   });
-  return rows.map(({ after, ...row }) => ({ ...row, elementCount: Object.keys(JSON.parse(after)).length }));
+  return rows.map(({ after, ...row }) => ({
+    ...row,
+    elementCount: Object.keys(JSON.parse(after)).filter((key) => !isMetaKey(key)).length,
+  }));
 };

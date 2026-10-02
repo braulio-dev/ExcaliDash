@@ -1,9 +1,14 @@
 import {
   addBoundRef,
   binding,
+  BINDABLE_TYPES,
   bump,
   centerLabel,
   connect,
+  createEmbeddable,
+  createFrame,
+  createFreedraw,
+  createImage,
   createLinear,
   createShape,
   createText,
@@ -13,6 +18,7 @@ import {
   roundnessFor,
   type SceneElement,
 } from "./elements";
+import { elementsInArea, orderFramesAfterChildren, reorderIds, type Area } from "./sceneExtras";
 
 // Applies an agent's add/update/delete operations to a scene. Pure: returns
 // the next element list plus the before/after state of every touched element,
@@ -49,12 +55,18 @@ export type ElementProps = {
   angle?: number;
   link?: string | null;
   locked?: boolean;
+  name?: string | null;
+  frameId?: string | null;
+  // Set by the tool layer once an image has been stored as a drawing file.
+  fileId?: string;
 };
 
 export type SceneOperation =
   | { op: "add"; element: ElementProps & { type: string } }
   | { op: "update"; id: string; set: ElementProps }
-  | { op: "delete"; id: string };
+  | { op: "delete"; id: string }
+  | ({ op: "erase" } & Area)
+  | { op: "reorder"; ids: string[]; to: "front" | "back" };
 
 export type TouchedState = Record<string, SceneElement | null>;
 
@@ -171,13 +183,26 @@ export const applySceneOperations = (
         continue;
       }
       const target = need(id);
-      if (isLinear(target) || target.type === "text") {
-        throw new SceneOpError(`Arrows can only attach to shapes; "${id}" is a ${target.type}`);
+      if (!BINDABLE_TYPES.has(target.type)) {
+        throw new SceneOpError(`Arrows can only attach to shapes, images and embeds; "${id}" is a ${target.type}`);
       }
       next = { ...next, [key]: arrow.type === "arrow" ? binding(id) : null };
       put(addBoundRef(live(id)!, { id: next.id, type: "arrow" }));
     }
     return reroute(next);
+  };
+
+  // Put an element (and its label) into a frame, or take it out with null.
+  const setFrame = (id: string, frameId: string | null) => {
+    const el = need(id);
+    if (frameId !== null) {
+      const frame = need(frameId);
+      if (frame.type !== "frame") throw new SceneOpError(`"${frameId}" is a ${frame.type}, not a frame`);
+      if (el.type === "frame") throw new SceneOpError("Frames cannot be nested");
+    }
+    put({ ...el, frameId });
+    const label = boundText(el);
+    if (label) put({ ...label, frameId });
   };
 
   const add = (props: ElementProps & { type: string }) => {
@@ -195,6 +220,20 @@ export const applySceneOperations = (
         width: props.width, height: props.height, roundness: roundnessFor(props.type, props.rounded) });
       put(el);
       if (props.startId || props.endId) el = bindArrow(el, props.startId, props.endId);
+    } else if (props.type === "freedraw") {
+      if (!props.points || props.points.length < 2) throw new SceneOpError("Free draw needs at least 2 `points`");
+      el = createFreedraw({ ...base, x: props.x ?? 0, y: props.y ?? 0, points: props.points });
+    } else if (props.type === "frame") {
+      el = createFrame({ ...base, x: props.x ?? 0, y: props.y ?? 0, width: props.width ?? 800,
+        height: props.height ?? 600, name: props.name ?? null });
+    } else if (props.type === "image") {
+      if (!props.fileId) throw new SceneOpError("Image elements need an `image` source");
+      el = createImage({ ...base, fileId: props.fileId, x: props.x ?? 0, y: props.y ?? 0,
+        width: props.width ?? 300, height: props.height ?? 300 });
+    } else if (props.type === "embeddable") {
+      if (!props.link) throw new SceneOpError("Embeds need a `link`");
+      el = createEmbeddable({ ...base, link: props.link, x: props.x ?? 0, y: props.y ?? 0,
+        ...(props.width ? { width: props.width } : {}), ...(props.height ? { height: props.height } : {}) });
     } else if (props.type === "rectangle" || props.type === "ellipse" || props.type === "diamond") {
       const width = props.width ?? 160;
       const height = props.height ?? 80;
@@ -207,12 +246,16 @@ export const applySceneOperations = (
     }
     put(el);
     created.push(el.id);
-    if (props.label) setLabel(el, props.label, props);
+    if (props.label && el.type !== "text" && el.type !== "frame" && el.type !== "freedraw" && el.type !== "image") {
+      setLabel(el, props.label, props);
+    }
+    if (props.frameId !== undefined) setFrame(el.id, props.frameId);
   };
 
   const update = (id: string, props: ElementProps) => {
-    let el = need(id);
-    el = { ...el, ...pick(props) };
+    const prev = need(id);
+    let el = { ...prev, ...pick(props) };
+    if (el.type === "frame" && props.name !== undefined) el = { ...el, name: props.name };
     for (const key of ["x", "y", "width", "height"] as const) {
       if (props[key] !== undefined) el = { ...el, [key]: props[key] };
     }
@@ -227,8 +270,23 @@ export const applySceneOperations = (
       const container = live(el.containerId);
       if (container) el = centerLabel(el, container);
     }
-    if (isLinear(el) && props.points) el = { ...el, points: props.points, ...linearBox(props.points) };
+    if ((isLinear(el) || el.type === "freedraw") && props.points) {
+      el = { ...el, points: props.points, ...linearBox(props.points) };
+    }
     put(el);
+    if (props.frameId !== undefined) setFrame(id, props.frameId);
+    // Moving a frame carries its contents along, as in the editor.
+    if (el.type === "frame" && (el.x !== prev.x || el.y !== prev.y)) {
+      const dx = el.x - prev.x;
+      const dy = el.y - prev.y;
+      const children = [...current.values()].filter((c) => !c.isDeleted && c.frameId === id);
+      for (const child of children) put({ ...live(child.id)!, x: child.x + dx, y: child.y + dy });
+      for (const child of children) {
+        const moved = live(child.id)!;
+        if (!isLinear(moved) && moved.type !== "text") refreshAttached(moved);
+      }
+      return;
+    }
     if (isLinear(el) && (props.startId !== undefined || props.endId !== undefined)) {
       put(bindArrow(el, props.startId, props.endId));
     }
@@ -243,6 +301,12 @@ export const applySceneOperations = (
   const remove = (id: string) => {
     const el = need(id);
     put({ ...el, isDeleted: true });
+    if (el.type === "frame") {
+      for (const child of [...current.values()]) {
+        if (!child.isDeleted && child.frameId === id) put({ ...child, frameId: null });
+      }
+      return;
+    }
     if (el.type === "text") {
       const container = live(el.containerId);
       if (container) put(removeBoundRef(container, el.id));
@@ -270,7 +334,16 @@ export const applySceneOperations = (
     if (operation.op === "add") add(operation.element);
     else if (operation.op === "update") update(operation.id, operation.set);
     else if (operation.op === "delete") remove(operation.id);
+    else if (operation.op === "erase") {
+      const hits = elementsInArea([...current.values()], operation).filter((hit) => live(hit));
+      if (hits.length === 0) throw new SceneOpError("Nothing to erase in that area");
+      for (const hit of hits) if (live(hit)) remove(hit);
+    } else if (operation.op === "reorder") {
+      operation.ids.forEach(need);
+      order.splice(0, order.length, ...reorderIds(order, operation.ids, operation.to));
+    }
   }
+  const finalOrder = orderFramesAfterChildren(order, current);
 
   const before: TouchedState = {};
   const after: TouchedState = {};
@@ -284,8 +357,15 @@ export const applySceneOperations = (
     current.set(id, finalEl);
   }
 
+  const keptOrder = finalOrder.filter((id) => original.has(id) || hasKey(after, id));
+  const originalOrder = elements.map((el) => el.id);
   return {
-    elements: order.map((id) => current.get(id)!).filter((el) => original.has(el.id) || hasKey(after, el.id)),
+    elements: keptOrder.map((id) => current.get(id)!),
+    // Set when the stacking order changed, so it can be stored and broadcast.
+    orderBefore: keptOrder.join("|") === [...originalOrder, ...keptOrder.filter((id) => !original.has(id))].join("|")
+      ? null
+      : originalOrder,
+    order: keptOrder,
     before,
     after,
     created: created.filter((id) => after[id]),

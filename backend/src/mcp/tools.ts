@@ -2,10 +2,13 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { canEditDrawing, canViewDrawing, getDrawingAccess } from "../authz/sharing";
 import { getUserTrashCollectionId } from "../routes/dashboard/trash";
-import { applyAgentEdit, ChangeError, listAgentChanges, revertAgentChange, type ChangeDeps } from "./changes";
+import { applyAgentEdit, listAgentChanges, revertAgentChange, type ChangeDeps } from "./changes";
 import { compactScene } from "./compact";
 import { ELEMENT_TYPES, type SceneElement } from "./elements";
-import { SceneOpError, type SceneOperation } from "./sceneOps";
+import { resolveImage } from "./images";
+import type { SceneOperation } from "./sceneOps";
+import { fail, guard, ok } from "./toolResult";
+import { registerExtraTools } from "./toolsExtra";
 import type { AgentIdentity } from "../server/agentPresence";
 
 // Tool definitions for one MCP session. Every tool acts as the API key's user
@@ -45,35 +48,35 @@ const elementProps = z.object({
     .describe("1 Virgil, 2 Helvetica, 3 Cascadia, 5 Excalifont (default), 6 Nunito, 7 Lilita One, 8 Comic Shanns"),
   textAlign: z.enum(["left", "center", "right"]).optional(),
   groupIds: z.array(z.string().max(64)).max(20).optional(),
-  points: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(200).optional()
-    .describe("Arrow/line points relative to x/y; ignored when both ends attach to shapes"),
+  points: z.array(z.tuple([z.number().finite(), z.number().finite()])).min(2).max(2000).optional()
+    .describe("Points relative to x/y for line, arrow and freedraw (pen strokes); arrows attached at both ends ignore them"),
   startId: id.nullable().optional().describe("Shape the arrow starts from (attached, follows the shape)"),
   endId: id.nullable().optional().describe("Shape the arrow points to"),
   startArrowhead: arrowhead.optional(),
   endArrowhead: arrowhead.optional(),
   angle: z.number().finite().optional().describe("Rotation in radians"),
-  link: z.string().url().max(2000).nullable().optional(),
+  link: z.string().url().max(2000).nullable().optional().describe("Hyperlink on any element; the page shown by an embeddable"),
   locked: z.boolean().optional(),
+  name: z.string().max(200).nullable().optional().describe("Frame title"),
+  frameId: id.nullable().optional().describe("Frame this element belongs to (it is clipped to the frame and moves with it); null removes it"),
+  image: z.object({
+    url: z.string().url().max(2000).optional().describe("Public https image URL"),
+    dataUrl: z.string().max(7_500_000).optional().describe("data:image/...;base64,..."),
+  }).optional().describe("Image source for type 'image' (PNG, JPEG, GIF, WebP or SVG, up to 5 MB)"),
 });
 
 const operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("add"), element: elementProps.extend({ type: z.enum(ELEMENT_TYPES), id: id.optional() }) }),
   z.object({ op: z.literal("update"), id, set: elementProps }),
   z.object({ op: z.literal("delete"), id }),
+  z.object({
+    op: z.literal("erase"),
+    x: z.number().finite(), y: z.number().finite(), width: z.number().finite().positive(), height: z.number().finite().positive(),
+  }).describe("Eraser: delete every element touching this area"),
+  z.object({ op: z.literal("reorder"), ids: z.array(id).min(1).max(400), to: z.enum(["front", "back"]) })
+    .describe("Bring elements to the front or send them to the back"),
 ]);
 
-const ok = (payload: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(payload, null, 1) }] });
-const fail = (message: string) => ({ isError: true, content: [{ type: "text" as const, text: message }] });
-
-const guard = async <T>(fn: () => Promise<T>) => {
-  try {
-    return await fn();
-  } catch (error) {
-    if (error instanceof SceneOpError || error instanceof ChangeError) return fail(error.message) as any;
-    console.error("[mcp] tool failed:", error);
-    return fail("The tool failed on the server. Re-read the drawing and try again.") as any;
-  }
-};
 
 export const registerTools = (server: McpServer, ctx: ToolContext) => {
   const access = (drawingId: string) =>
@@ -131,21 +134,42 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
   server.registerTool("edit_drawing", {
     title: "Edit drawing",
     description: [
-      "Apply add/update/delete operations to a drawing as one undoable change. People with the drawing open watch it happen live.",
-      "Coordinates are canvas pixels, y grows downwards. New shapes default to 160x80; give `id`s to new elements so later operations in the same call (e.g. arrows via startId/endId) can reference them.",
+      "Apply operations to a drawing as one undoable change. People with the drawing open watch it happen live.",
+      "Element types: rectangle, ellipse, diamond, text, arrow, line, freedraw (pen stroke from points), frame (named container), image (from `image.url` or `image.dataUrl`) and embeddable (web embed from `link`).",
+      "Operations: add, update, delete, erase (everything touching an area) and reorder (front/back). `background` sets the canvas colour.",
+      "Coordinates are canvas pixels, y grows downwards. New shapes default to 160x80; give `id`s to new elements so later operations in the same call (arrows via startId/endId, frameId) can reference them.",
+      "To put a chart in a frame, add the frame first, then add or update elements with `frameId`; size the frame to enclose them (contents are clipped to it). Moving a frame moves its contents.",
       "Moving or resizing a shape keeps its label centred and re-routes attached arrows. Deleting a shape deletes its label.",
-      "Returns a changeId for undo_change.",
+      "Returns a changeId for undo_change. Use export_drawing to look at the result.",
     ].join(" "),
     inputSchema: {
       drawingId: z.string().min(1),
       summary: z.string().min(1).max(300).describe("Short description of the change, shown in the editor's AI changes list"),
-      operations: z.array(operation).min(1).max(400),
+      operations: z.array(operation).max(400).default([]),
+      background: color.optional().describe("Canvas background colour"),
     },
     annotations: { destructiveHint: false, idempotentHint: false },
-  }, ({ drawingId, summary, operations }) => guard(async () => {
+  }, ({ drawingId, summary, operations, background }) => guard(async () => {
     if (!canEditDrawing(await access(drawingId))) return fail("You do not have edit access to this drawing");
+    if (operations.length === 0 && !background) return fail("Give at least one operation or a background colour");
+    // Store images first; the operations then reference them by file id.
+    const files: Record<string, unknown> = {};
+    for (const operation of operations) {
+      if (operation.op !== "add" || operation.element.type !== "image") continue;
+      if (!operation.element.image) return fail("Image elements need `image.url` or `image.dataUrl`");
+      const resolved = await resolveImage(operation.element.image);
+      files[resolved.fileId] = resolved.file;
+      const el = operation.element as Record<string, unknown>;
+      el.fileId = resolved.fileId;
+      // Default to the natural size, scaled down to at most 800px wide.
+      const ratio = resolved.height / resolved.width;
+      const width = (el.width as number | undefined) ?? Math.min(resolved.width, 800);
+      el.width = width;
+      el.height = (el.height as number | undefined) ?? Math.round(width * ratio);
+    }
     const result = await applyAgentEdit(ctx, {
       drawingId, userId: ctx.userId, agent: ctx.getAgent(), summary, operations: operations as SceneOperation[],
+      files, background,
     });
     ctx.log("mcp_edit", { drawingId, changeId: result.changeId, elements: result.touched.length });
     return ok({ changeId: result.changeId, createdIds: result.created, changedElements: result.touched.length, version: result.version });
@@ -206,4 +230,6 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
     description: "Change the name you appear under as a live collaborator (e.g. to tell several AI sessions apart).",
     inputSchema: { name: z.string().min(1).max(60) },
   }, ({ name }) => guard(async () => ok(ctx.renameAgent(name))));
+
+  registerExtraTools(server, { ...ctx, access, drawingUrl });
 };

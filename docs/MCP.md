@@ -140,13 +140,24 @@ The API key gives the AI that user's access to their drawings. Use a separate ke
 | --- | --- |
 | `list_drawings` | Drawings you own or that are shared with you |
 | `read_drawing` | Joins the drawing as a live collaborator and returns its elements in compact form |
-| `edit_drawing` | Applies add / update / delete operations as one undoable change |
+| `edit_drawing` | Applies operations as one undoable change (see below) |
+| `export_drawing` | Renders the drawing, one frame or some elements to PNG (returned as an image) or SVG |
+| `point_at` | Moves the AI's cursor to elements or a point and highlights them, like a laser pointer |
 | `undo_change` / `redo_change` | Reverts or re-applies an AI change (defaults to this session's latest) |
 | `list_changes` | AI changes on a drawing, from any agent |
-| `create_drawing` | Creates an empty drawing |
+| `create_drawing` / `rename_drawing` | Creates an empty drawing / renames one |
 | `set_agent_name` | Renames the collaborator the session appears as |
 
-`edit_drawing` understands labels inside shapes and on arrows (`label`), arrows attached to shapes (`startId` / `endId`), and keeps both in place when shapes move.
+### What `edit_drawing` can do
+
+- **Element types:** rectangle, ellipse, diamond, text, arrow, line, freedraw (pen strokes from points), frame (named container), image and embeddable (web embed).
+- **Operations:** `add`, `update`, `delete`, `erase` (delete everything touching an area) and `reorder` (bring to front / send to back).
+- **Canvas:** `background` sets the canvas colour; open editors update live.
+- **Labels and arrows:** `label` puts text inside a shape or on an arrow; `startId` / `endId` attach arrows to shapes, images or embeds, and both stay in place when shapes move.
+- **Frames:** add a frame, then give elements its id as `frameId`. Contents are clipped to the frame and move with it; deleting a frame keeps its contents.
+- **Images:** `image.url` (public https) or `image.dataUrl`; PNG, JPEG, GIF, WebP or SVG up to 5 MB. Remote URLs on private networks are refused.
+
+Exports are rendered on the server with the same hand-drawn style as the editor; text uses a standard sans font rather than Excalidraw's handwriting font.
 
 ## Live collaboration and undo
 

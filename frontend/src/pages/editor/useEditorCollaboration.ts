@@ -286,6 +286,16 @@ export const useEditorCollaboration = ({
       },
     );
     socket.on("agent-change", handleAgentChangeEvent);
+    // AI edits can change the canvas background; Excalidraw collab does not
+    // sync appState, so apply it here (subsequent saves then keep it).
+    socket.on(
+      "scene-appstate",
+      (payload: { drawingId?: string; appState?: { viewBackgroundColor?: string } }) => {
+        const color = payload?.appState?.viewBackgroundColor;
+        if (payload?.drawingId !== drawingId || !color || !excalidrawAPI.current) return;
+        excalidrawAPI.current.updateScene({ appState: { viewBackgroundColor: color } });
+      },
+    );
     socket.on("drawing-server-update", (payload: { drawingId?: string }) => {
       if (!payload?.drawingId || payload.drawingId !== drawingId) return;
       toast.info("Drawing storage changed on the server. Reloading the editor.");
@@ -317,6 +327,7 @@ export const useEditorCollaboration = ({
       socket.off("element-update");
       socket.off("drawing-server-update");
       socket.off("agent-change");
+      socket.off("scene-appstate");
       socket.disconnect();
       if (remoteFlushRafIdRef.current !== null) {
         cancelAnimationFrame(remoteFlushRafIdRef.current);

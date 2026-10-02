@@ -175,6 +175,56 @@ describe("MCP endpoint", () => {
     expect(ids).not.toContain(trashed.data.id);
   });
 
+  it("frames charts, adds images, sets the background and exports a PNG", async () => {
+    const tools = (await rpc(admin.token, "tools/list", {}, sessionId)).body.result.tools.map((t: { name: string }) => t.name);
+    expect(tools).toEqual(expect.arrayContaining(["export_drawing", "point_at", "rename_drawing"]));
+
+    const { data } = await call("create_drawing", { name: "Frames" });
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const edit = await call("edit_drawing", {
+      drawingId: data.id,
+      summary: "Framed chart with a logo",
+      background: "#fff9db",
+      operations: [
+        { op: "add", element: { type: "frame", id: "f", x: 0, y: 0, width: 500, height: 300, name: "Registro" } },
+        { op: "add", element: { type: "rectangle", id: "a", x: 40, y: 60, label: "Paso 1", frameId: "f" } },
+        { op: "add", element: { type: "image", id: "logo", x: 300, y: 60, width: 40, image: { dataUrl: png }, frameId: "f" } },
+      ],
+    });
+    expect(edit.isError).toBe(false);
+
+    const stored = await prisma.drawing.findUniqueOrThrow({ where: { id: data.id } });
+    expect(JSON.parse(stored.appState).viewBackgroundColor).toBe("#fff9db");
+    const logo = JSON.parse(stored.elements).find((el: any) => el.id === "logo");
+    expect(logo).toMatchObject({ type: "image", frameId: "f", width: 40, height: 40 });
+    expect(Object.keys(JSON.parse(stored.files))).toContain(logo.fileId);
+
+    const read = await call("read_drawing", { drawingId: data.id });
+    expect(read.data.elements.find((e: any) => e.id === "f")).toMatchObject({ type: "frame", name: "Registro" });
+
+    const exported = await rpc(admin.token, "tools/call", { name: "export_drawing", arguments: { drawingId: data.id, frame: "Registro" } }, sessionId);
+    const [image, caption] = exported.body.result.content;
+    expect(image.type).toBe("image");
+    expect(Buffer.from(image.data, "base64").subarray(1, 4).toString("ascii")).toBe("PNG");
+    expect(caption.text).toContain("500x300");
+
+    const svg = await rpc(admin.token, "tools/call", { name: "export_drawing", arguments: { drawingId: data.id, format: "svg" } }, sessionId);
+    const svgText = svg.body.result.content[0].text as string;
+    expect(svgText).toContain("<svg");
+    expect(svgText).toContain("data:image/png;base64");
+
+    // Undo restores the old background along with removing the elements.
+    await call("undo_change", { drawingId: data.id });
+    const undone = await prisma.drawing.findUniqueOrThrow({ where: { id: data.id } });
+    expect(JSON.parse(undone.appState).viewBackgroundColor).toBe("#ffffff");
+    expect(JSON.parse(undone.elements).filter((el: any) => !el.isDeleted)).toHaveLength(0);
+
+    const pointed = await call("point_at", { drawingId: data.id, x: 10, y: 20 });
+    expect(pointed.data.pointer).toEqual({ x: 10, y: 20 });
+    const renamed = await call("rename_drawing", { drawingId: data.id, name: "Frames v2" });
+    expect(renamed.data.name).toBe("Frames v2");
+  });
+
   it("reports invalid operations as tool errors without changing the drawing", async () => {
     const { data } = await call("create_drawing", { name: "Errors" });
     const bad = await call("edit_drawing", {

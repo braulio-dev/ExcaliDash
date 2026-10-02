@@ -17,7 +17,9 @@ export type SceneElement = Record<string, any> & {
 
 export const SHAPE_TYPES = ["rectangle", "ellipse", "diamond"] as const;
 export const LINEAR_TYPES = ["arrow", "line"] as const;
-export const ELEMENT_TYPES = [...SHAPE_TYPES, ...LINEAR_TYPES, "text"] as const;
+export const ELEMENT_TYPES = [...SHAPE_TYPES, ...LINEAR_TYPES, "text", "freedraw", "frame", "image", "embeddable"] as const;
+// Elements an arrow may attach to.
+export const BINDABLE_TYPES = new Set<string>([...SHAPE_TYPES, "image", "embeddable"]);
 export type ElementType = (typeof ELEMENT_TYPES)[number];
 
 // Excalidraw font ids → [line height, average glyph width factor].
@@ -156,6 +158,40 @@ export const createLinear = (type: "arrow" | "line", props: Record<string, any>)
     ...(type === "arrow" ? { elbowed: false } : {}),
   });
 };
+
+export const createFreedraw = (props: Record<string, any> & { points: [number, number][] }) =>
+  baseElement("freedraw", {
+    ...props,
+    ...linearBox(props.points),
+    pressures: [],
+    simulatePressure: true,
+    lastCommittedPoint: null,
+  });
+
+// Frames use Excalidraw's frame defaults (thin grey outline, no fill).
+export const createFrame = (props: Record<string, any>) =>
+  baseElement("frame", {
+    strokeColor: "#bbb",
+    strokeWidth: 2,
+    roughness: 0,
+    ...props,
+    name: props.name ?? null,
+    backgroundColor: "transparent",
+    roundness: null,
+  });
+
+export const createImage = (props: Record<string, any> & { fileId: string }) =>
+  baseElement("image", {
+    strokeColor: "transparent",
+    ...props,
+    backgroundColor: "transparent",
+    status: "saved",
+    scale: [1, 1],
+    crop: null,
+  });
+
+export const createEmbeddable = (props: Record<string, any> & { link: string }) =>
+  baseElement("embeddable", { width: 560, height: 315, roundness: { type: 3 }, ...props });
 
 export const linearBox = (points: [number, number][]) => {
   const xs = points.map((p) => p[0]);

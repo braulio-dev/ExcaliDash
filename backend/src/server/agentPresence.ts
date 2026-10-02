@@ -22,7 +22,11 @@ export type AgentPresence = {
     pointer: { x: number; y: number },
     selectedElementIds?: string[],
   ) => void;
-  broadcastElements: (drawingId: string, elements: unknown[]) => void;
+  broadcastElements: (
+    drawingId: string,
+    elements: unknown[],
+    extra?: { files?: Record<string, unknown>; elementOrder?: string[] },
+  ) => void;
   emit: (drawingId: string, event: string, payload: unknown) => void;
   isWatched: (drawingId: string) => boolean;
 };
@@ -120,8 +124,8 @@ export const createAgentPresence = ({
         color: agent.color,
       });
     },
-    broadcastElements: (drawingId, elements) => {
-      io.to(roomOf(drawingId)).emit("element-update", { drawingId, elements });
+    broadcastElements: (drawingId, elements, extra = {}) => {
+      io.to(roomOf(drawingId)).emit("element-update", { drawingId, elements, ...extra });
     },
     emit: (drawingId, event, payload) => {
       io.to(roomOf(drawingId)).emit(event, payload);
