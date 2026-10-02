@@ -18,57 +18,20 @@ import {
   roundnessFor,
   type SceneElement,
 } from "./elements";
-import { elementsInArea, orderFramesAfterChildren, reorderIds, type Area } from "./sceneExtras";
+import { elementsInArea, elementsWithin, orderFramesAfterChildren, reorderIds } from "./sceneExtras";
+import type { ElementProps, SceneOperation, TouchedState } from "./sceneTypes";
+
+export type { ElementProps, SceneOperation, TouchedState } from "./sceneTypes";
+
+const targetIds = (operation: { id?: string; ids?: string[] }): string[] => {
+  const ids = [...(operation.id ? [operation.id] : []), ...(operation.ids ?? [])];
+  if (ids.length === 0) throw new SceneOpError("Give `id` or `ids`");
+  return ids;
+};
 
 // Applies an agent's add/update/delete operations to a scene. Pure: returns
 // the next element list plus the before/after state of every touched element,
 // which is what gets stored for undo/redo.
-
-export type ElementProps = {
-  id?: string;
-  type?: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  anchor?: "topLeft" | "center";
-  text?: string;
-  label?: string;
-  labelColor?: string;
-  strokeColor?: string;
-  backgroundColor?: string;
-  fillStyle?: string;
-  strokeWidth?: number;
-  strokeStyle?: string;
-  roughness?: number;
-  opacity?: number;
-  rounded?: boolean;
-  fontSize?: number;
-  fontFamily?: number;
-  textAlign?: "left" | "center" | "right";
-  groupIds?: string[];
-  points?: [number, number][];
-  startId?: string | null;
-  endId?: string | null;
-  startArrowhead?: string | null;
-  endArrowhead?: string | null;
-  angle?: number;
-  link?: string | null;
-  locked?: boolean;
-  name?: string | null;
-  frameId?: string | null;
-  // Set by the tool layer once an image has been stored as a drawing file.
-  fileId?: string;
-};
-
-export type SceneOperation =
-  | { op: "add"; element: ElementProps & { type: string } }
-  | { op: "update"; id: string; set: ElementProps }
-  | { op: "delete"; id: string }
-  | ({ op: "erase" } & Area)
-  | { op: "reorder"; ids: string[]; to: "front" | "back" };
-
-export type TouchedState = Record<string, SceneElement | null>;
 
 export class SceneOpError extends Error {}
 
@@ -332,9 +295,22 @@ export const applySceneOperations = (
 
   for (const operation of operations) {
     if (operation.op === "add") add(operation.element);
-    else if (operation.op === "update") update(operation.id, operation.set);
-    else if (operation.op === "delete") remove(operation.id);
-    else if (operation.op === "erase") {
+    else if (operation.op === "update") targetIds(operation).forEach((id) => update(id, operation.set));
+    else if (operation.op === "delete") {
+      // Ids already removed earlier in the call (e.g. a label with its shape) are fine; unknown ids are not.
+      for (const id of targetIds(operation)) {
+        if (!current.has(id)) need(id);
+        if (live(id)) remove(id);
+      }
+    }
+    else if (operation.op === "assign_frame") {
+      const frame = need(operation.frameId);
+      if (frame.type !== "frame") throw new SceneOpError(`"${operation.frameId}" is a ${frame.type}, not a frame`);
+      const ids = operation.ids
+        ?? elementsWithin([...current.values()], operation.area ?? frame).filter((hit) => live(hit)?.type !== "frame");
+      if (ids.length === 0) throw new SceneOpError("No elements to put in the frame");
+      for (const id of ids) setFrame(id, frame.id);
+    } else if (operation.op === "erase") {
       const hits = elementsInArea([...current.values()], operation).filter((hit) => live(hit));
       if (hits.length === 0) throw new SceneOpError("Nothing to erase in that area");
       for (const hit of hits) if (live(hit)) remove(hit);

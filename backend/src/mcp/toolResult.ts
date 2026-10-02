@@ -5,7 +5,8 @@ import { SceneOpError } from "./sceneOps";
 // Shared MCP tool result helpers. Expected failures (bad operations, undo
 // conflicts, unusable images) go back to the model as readable tool errors.
 
-export const ok = (payload: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(payload, null, 1) }] });
+// Minified: indentation roughly doubles the tokens of large scene reads.
+export const ok = (payload: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(payload) }] });
 export const fail = (message: string) => ({ isError: true, content: [{ type: "text" as const, text: message }] });
 
 export const guard = async <T>(fn: () => Promise<T>) => {

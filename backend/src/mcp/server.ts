@@ -38,6 +38,7 @@ const INSTRUCTIONS = [
   "You appear to people viewing the drawing as a live collaborator and they watch your edits as you make them.",
   "Match the drawing's existing style (colours, font, roughness, sizes) unless asked otherwise. Leave ~40px between shapes and keep labels short.",
   "Keep separate charts in their own named frames. After a larger edit, call export_drawing to look at the result and fix overlaps.",
+  "Save tokens: read only the frame or area you are working on, use `ids` for bulk updates, and do not re-read after an edit unless you need new positions.",
 ].join(" ");
 
 export const createMcpEndpoint = (deps: ChangeDeps & {

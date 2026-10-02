@@ -65,10 +65,21 @@ const elementProps = z.object({
   }).optional().describe("Image source for type 'image' (PNG, JPEG, GIF, WebP or SVG, up to 5 MB)"),
 });
 
+const areaSchema = z.object({
+  x: z.number().finite(), y: z.number().finite(), width: z.number().finite().positive(), height: z.number().finite().positive(),
+});
+
 const operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("add"), element: elementProps.extend({ type: z.enum(ELEMENT_TYPES), id: id.optional() }) }),
-  z.object({ op: z.literal("update"), id, set: elementProps }),
-  z.object({ op: z.literal("delete"), id }),
+  z.object({ op: z.literal("update"), id: id.optional(), ids: z.array(id).max(1000).optional(), set: elementProps })
+    .describe("Change one element (`id`) or apply the same change to many (`ids`)"),
+  z.object({ op: z.literal("delete"), id: id.optional(), ids: z.array(id).max(1000).optional() }),
+  z.object({
+    op: z.literal("assign_frame"),
+    frameId: id,
+    ids: z.array(id).max(1000).optional(),
+    area: areaSchema.optional(),
+  }).describe("Put elements in a frame: the listed `ids`, everything inside `area`, or by default everything inside the frame"),
   z.object({
     op: z.literal("erase"),
     x: z.number().finite(), y: z.number().finite(), width: z.number().finite().positive(), height: z.number().finite().positive(),
@@ -110,10 +121,21 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
 
   server.registerTool("read_drawing", {
     title: "Read drawing",
-    description: "Open a drawing (you appear in it as a live collaborator) and return its elements in compact form. Bound text is shown as `label` on its shape or arrow. Read before editing.",
-    inputSchema: { drawingId: z.string().min(1) },
+    description: [
+      "Open a drawing (you appear in it as a live collaborator) and return its elements in compact form.",
+      "Bound text is shown as `label` on its shape or arrow. Style values most elements share are listed once in `styleDefaults`; elements only show values that differ.",
+      "`frames` always lists the drawing's frames. To save tokens, read just one `frame` (id or name), an `area`, or some `ids`, or use `summaryOnly` to get only counts and frames.",
+      "Read before editing; after edit_drawing there is no need to read again unless you need new positions.",
+    ].join(" "),
+    inputSchema: {
+      drawingId: z.string().min(1),
+      frame: z.string().max(200).optional().describe("Only this frame (id or name) and its contents"),
+      area: areaSchema.optional().describe("Only elements touching this area"),
+      ids: z.array(z.string()).max(1000).optional().describe("Only these elements"),
+      summaryOnly: z.boolean().optional().describe("Return counts, bounds and frames without elements"),
+    },
     annotations: { readOnlyHint: true },
-  }, ({ drawingId }) => guard(async () => {
+  }, ({ drawingId, frame, area, ids, summaryOnly }) => guard(async () => {
     const level = await access(drawingId);
     if (!canViewDrawing(level)) return fail("Drawing not found or you do not have access to it");
     const drawing = await ctx.prisma.drawing.findUnique({ where: { id: drawingId } });
@@ -121,10 +143,16 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
     ctx.presence.join(drawingId, ctx.getAgent());
     const elements = ctx.parseJsonField<SceneElement[]>(drawing.elements, []);
     const appState = ctx.parseJsonField<Record<string, unknown>>(drawing.appState, {});
+    let frameId: string | undefined;
+    if (frame) {
+      const match = elements.find((el) => !el.isDeleted && el.type === "frame" && (el.id === frame || el.name === frame));
+      if (!match) return fail(`No frame with id or name "${frame}"`);
+      frameId = match.id;
+    }
     return ok({
       id: drawing.id, name: drawing.name, url: drawingUrl(drawing.id), access: level, version: drawing.version,
       background: appState.viewBackgroundColor ?? "#ffffff",
-      ...compactScene(elements),
+      ...compactScene(elements, { frameId, area, ids, summaryOnly }),
       recentAiChanges: (await listAgentChanges(ctx.prisma, drawingId, 5)).map((c) => ({
         changeId: c.id, by: c.agentName, summary: c.summary, at: c.createdAt, undone: Boolean(c.undoneAt),
       })),
@@ -140,7 +168,8 @@ export const registerTools = (server: McpServer, ctx: ToolContext) => {
       "Coordinates are canvas pixels, y grows downwards. New shapes default to 160x80; give `id`s to new elements so later operations in the same call (arrows via startId/endId, frameId) can reference them.",
       "To put a chart in a frame, add the frame first, then add or update elements with `frameId`; size the frame to enclose them (contents are clipped to it). Moving a frame moves its contents.",
       "Moving or resizing a shape keeps its label centred and re-routes attached arrows. Deleting a shape deletes its label.",
-      "Returns a changeId for undo_change. Use export_drawing to look at the result.",
+      "Bulk: `update`/`delete` take `ids` to apply one change to many elements; `assign_frame` fills a frame by ids or area.",
+      "Returns a changeId for undo_change and the ids it created; no need to read the drawing again afterwards. Use export_drawing to look at the result.",
     ].join(" "),
     inputSchema: {
       drawingId: z.string().min(1),

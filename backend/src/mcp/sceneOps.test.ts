@@ -104,8 +104,37 @@ describe("compactScene", () => {
       { op: "add", element: { type: "rectangle", id: "gone" } },
     ]);
     const after = applySceneOperations(elements, [{ op: "delete", id: "gone" }]).elements;
-    const scene = compactScene(after);
+    const scene = compactScene(after) as any;
     expect(scene.elementCount).toBe(1);
-    expect(scene.elements[0]).toMatchObject({ id: "a", type: "rectangle", label: "Hello", strokeColor: "#534AB7", rounded: true });
+    expect(scene.elements[0]).toMatchObject({ id: "a", type: "rectangle", label: "Hello" });
+    // With a single element its whole style is the shared default.
+    expect(scene.styleDefaults).toMatchObject({ strokeColor: "#534AB7", rounded: true });
+  });
+
+  it("lists shared styles once and only differences per element", () => {
+    const { elements } = applySceneOperations([], [
+      { op: "add", element: { type: "rectangle", id: "a", roughness: 0, strokeWidth: 1 } },
+      { op: "add", element: { type: "rectangle", id: "b", roughness: 0, strokeWidth: 1 } },
+      { op: "add", element: { type: "rectangle", id: "c", roughness: 0, strokeWidth: 4, strokeColor: "#e03131" } },
+    ]);
+    const scene = compactScene(elements) as any;
+    expect(scene.styleDefaults).toMatchObject({ roughness: 0, strokeWidth: 1, strokeColor: "#1e1e1e" });
+    expect(scene.elements[0]).toEqual({ id: "a", type: "rectangle", x: 0, y: 0, w: 160, h: 80 });
+    expect(scene.elements[2]).toMatchObject({ id: "c", strokeWidth: 4, strokeColor: "#e03131" });
+    expect(scene.elements[2].roughness).toBeUndefined();
+  });
+
+  it("filters by frame, area and ids, and can return only a summary", () => {
+    const { elements } = applySceneOperations([], [
+      { op: "add", element: { type: "frame", id: "f", x: 0, y: 0, width: 300, height: 200, name: "One" } },
+      { op: "add", element: { type: "rectangle", id: "in", x: 20, y: 20, frameId: "f" } },
+      { op: "add", element: { type: "rectangle", id: "out", x: 500, y: 500 } },
+    ]);
+    expect((compactScene(elements, { frameId: "f" }) as any).elements.map((e: any) => e.id)).toEqual(["in", "f"]);
+    expect((compactScene(elements, { area: { x: 450, y: 450, width: 300, height: 300 } }) as any).elements.map((e: any) => e.id)).toEqual(["out"]);
+    expect((compactScene(elements, { ids: ["out"] }) as any).elements).toHaveLength(1);
+    const summary = compactScene(elements, { summaryOnly: true }) as any;
+    expect(summary.elements).toBeUndefined();
+    expect(summary).toMatchObject({ totalElements: 3, frames: [{ id: "f", name: "One", elementCount: 1 }] });
   });
 });

@@ -28,6 +28,17 @@ export const elementsInArea = (elements: SceneElement[], area: Area): string[] =
     .filter((el) => overlaps(boundsOf(el), area))
     .map((el) => el.id);
 
+// Ids of live, top-level elements lying entirely inside `area` (bound labels
+// follow their container, so they are left out).
+export const elementsWithin = (elements: SceneElement[], area: Area): string[] =>
+  elements
+    .filter((el) => !el.isDeleted && !(el.type === "text" && el.containerId))
+    .filter((el) => {
+      const b = boundsOf(el);
+      return b.x >= area.x && b.y >= area.y && b.x + b.width <= area.x + area.width && b.y + b.height <= area.y + area.height;
+    })
+    .map((el) => el.id);
+
 // Move `ids` (keeping their relative order) to the top or bottom of the stack.
 export const reorderIds = (order: string[], ids: string[], to: "front" | "back"): string[] => {
   const moving = new Set(ids);

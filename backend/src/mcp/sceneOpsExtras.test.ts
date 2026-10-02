@@ -87,6 +87,43 @@ describe("other element types", () => {
   });
 });
 
+describe("bulk operations", () => {
+  const three = () =>
+    applySceneOperations([], [
+      { op: "add", element: { type: "rectangle", id: "a", x: 10, y: 10, label: "A" } },
+      { op: "add", element: { type: "rectangle", id: "b", x: 200, y: 10 } },
+      { op: "add", element: { type: "rectangle", id: "c", x: 900, y: 900 } },
+    ]).elements;
+
+  it("updates and deletes many elements at once", () => {
+    const updated = applySceneOperations(three(), [{ op: "update", ids: ["a", "b"], set: { strokeColor: "#e03131" } }]);
+    expect(updated.elements.filter((el) => el.strokeColor === "#e03131").map((el) => el.id)).toEqual(["a", "b"]);
+    const deleted = applySceneOperations(three(), [{ op: "delete", ids: ["a", "c"] }]);
+    expect(deleted.elements.filter((el) => !el.isDeleted).map((el) => el.id)).toEqual(["b"]);
+    expect(() => applySceneOperations(three(), [{ op: "delete", ids: ["a", "nope"] }])).toThrow(/nope/);
+    expect(() => applySceneOperations(three(), [{ op: "update", set: { x: 1 } }])).toThrow(/id/);
+  });
+
+  it("fills a frame with what lies inside it, by area or by ids", () => {
+    const withFrame = applySceneOperations(three(), [
+      { op: "add", element: { type: "frame", id: "f", x: 0, y: 0, width: 500, height: 200 } },
+      { op: "assign_frame", frameId: "f" },
+    ]).elements;
+    const byId = new Map(withFrame.map((el) => [el.id, el]));
+    expect(byId.get("a")!.frameId).toBe("f");
+    expect(byId.get("b")!.frameId).toBe("f");
+    expect(byId.get("c")!.frameId).toBeFalsy();
+    expect(withFrame.find((el) => el.type === "text")!.frameId).toBe("f");
+
+    const byArea = applySceneOperations(withFrame, [
+      { op: "add", element: { type: "frame", id: "g", x: 800, y: 800, width: 400, height: 300 } },
+      { op: "assign_frame", frameId: "g", area: { x: 850, y: 850, width: 300, height: 200 } },
+    ]).elements;
+    expect(byArea.find((el) => el.id === "c")!.frameId).toBe("g");
+    expect(() => applySceneOperations(three(), [{ op: "assign_frame", frameId: "a" }])).toThrow(/not a frame/);
+  });
+});
+
 describe("erase and reorder", () => {
   const scene = () =>
     applySceneOperations([], [

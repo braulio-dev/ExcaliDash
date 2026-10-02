@@ -139,7 +139,7 @@ The API key gives the AI that user's access to their drawings. Use a separate ke
 | Tool | What it does |
 | --- | --- |
 | `list_drawings` | Drawings you own or that are shared with you |
-| `read_drawing` | Joins the drawing as a live collaborator and returns its elements in compact form |
+| `read_drawing` | Joins the drawing as a live collaborator and returns its elements in compact form; can be limited to a `frame`, an `area` or `ids`, or `summaryOnly` |
 | `edit_drawing` | Applies operations as one undoable change (see below) |
 | `export_drawing` | Renders the drawing, one frame or some elements to PNG (returned as an image) or SVG |
 | `point_at` | Moves the AI's cursor to elements or a point and highlights them, like a laser pointer |
@@ -151,11 +151,15 @@ The API key gives the AI that user's access to their drawings. Use a separate ke
 ### What `edit_drawing` can do
 
 - **Element types:** rectangle, ellipse, diamond, text, arrow, line, freedraw (pen strokes from points), frame (named container), image and embeddable (web embed).
-- **Operations:** `add`, `update`, `delete`, `erase` (delete everything touching an area) and `reorder` (bring to front / send to back).
+- **Operations:** `add`, `update`, `delete`, `assign_frame`, `erase` (delete everything touching an area) and `reorder` (bring to front / send to back). `update` and `delete` take `ids` to apply one change to many elements.
 - **Canvas:** `background` sets the canvas colour; open editors update live.
 - **Labels and arrows:** `label` puts text inside a shape or on an arrow; `startId` / `endId` attach arrows to shapes, images or embeds, and both stay in place when shapes move.
-- **Frames:** add a frame, then give elements its id as `frameId`. Contents are clipped to the frame and move with it; deleting a frame keeps its contents.
+- **Frames:** add a frame, then give elements its id as `frameId`, or use `assign_frame` to put in everything inside the frame (or an area) at once. Contents are clipped to the frame and move with it; deleting a frame keeps its contents.
 - **Images:** `image.url` (public https) or `image.dataUrl`; PNG, JPEG, GIF, WebP or SVG up to 5 MB. Remote URLs on private networks are refused.
+
+### Token use
+
+Replies are minified, and style values most elements share are sent once as `styleDefaults` instead of on every element (about half the size of a plain dump on a typical chart). Read just the frame or area being worked on, use `ids` for bulk changes, and skip re-reading after an edit: `edit_drawing` already returns what it created.
 
 Exports are rendered on the server with the same hand-drawn style as the editor; text uses a standard sans font rather than Excalidraw's handwriting font.
 
