@@ -155,7 +155,8 @@ const TABS = [
 ] as const;
 
 export const McpSetupTabs: React.FC<{ endpoint: string }> = ({ endpoint }) => {
-  const [tab, setTab] = useState<(typeof TABS)[number]['id']>('claude');
+  // Nothing open until an admin picks a client; picking it again closes it.
+  const [tab, setTab] = useState<(typeof TABS)[number]['id'] | null>(null);
   return (
     <div>
       <div className={labelClassName}>Connect an AI client</div>
@@ -164,14 +165,14 @@ export const McpSetupTabs: React.FC<{ endpoint: string }> = ({ endpoint }) => {
         use it in place of {mono(KEY_PLACEHOLDER)}. The AI gets exactly that person's access. More detail in the{' '}
         <a href={GUIDE_URL} target="_blank" rel="noreferrer" className="font-bold underline">setup guide</a>.
       </p>
-      <div role="tablist" className="flex gap-2 mb-4">
+      <div role="tablist" className="flex gap-2">
         {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab((current) => (current === t.id ? null : t.id))}
             className={`px-4 py-2 rounded-xl border-2 text-sm font-bold transition-all ${
               tab === t.id
                 ? 'border-black dark:border-neutral-500 bg-indigo-50 dark:bg-neutral-800 text-indigo-700 dark:text-indigo-300 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] dark:shadow-[2px_2px_0px_0px_rgba(255,255,255,0.2)]'
@@ -182,9 +183,11 @@ export const McpSetupTabs: React.FC<{ endpoint: string }> = ({ endpoint }) => {
           </button>
         ))}
       </div>
-      <div role="tabpanel">
-        {tab === 'claude' ? <ClaudeSetup endpoint={endpoint} /> : <CodexSetup endpoint={endpoint} />}
-      </div>
+      {tab ? (
+        <div role="tabpanel" className="mt-4">
+          {tab === 'claude' ? <ClaudeSetup endpoint={endpoint} /> : <CodexSetup endpoint={endpoint} />}
+        </div>
+      ) : null}
     </div>
   );
 };

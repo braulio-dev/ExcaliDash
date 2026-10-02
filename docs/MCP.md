@@ -2,7 +2,7 @@
 
 ExcaliDash exposes a [Model Context Protocol](https://modelcontextprotocol.io) endpoint so AI clients such as Claude can read and edit drawings. Each AI session shows up in open drawings as a live collaborator, and every AI edit can be undone.
 
-- **Endpoint:** `https://<your-host>/api/mcp` (streamable HTTP). On this deployment: `https://draw.brauw.dev/api/mcp`.
+- **Endpoint:** `https://<your-host>/api/mcp` (streamable HTTP), where `<your-host>` is the address you open ExcaliDash at. The Admin page shows the exact URL.
 - **Auth:** an ExcaliDash API key sent as `Authorization: Bearer exd_…`. The AI gets exactly that user's access.
 - **Admin:** Admin → *AI Agents (MCP)* turns the endpoint on or off and shows connected sessions and recent AI edits.
 
@@ -30,7 +30,7 @@ Then connect with **one** of the options below (A–C for Claude, D for Codex).
    | Field | What to enter / select |
    | --- | --- |
    | Name | `ExcaliDash` (any name works) |
-   | Remote MCP server URL | `https://draw.brauw.dev/api/mcp` |
+   | Remote MCP server URL | `https://<your-host>/api/mcp` |
    | **Authentication** | **No sign-in**. ExcaliDash uses an API key, not OAuth. |
    | **OAuth client** | Leave as is; it is not used with *No sign-in*. |
    | **Request headers** → Header name | `Authorization` |
@@ -48,7 +48,7 @@ The header value is stored by Claude and not shown again. To change the key late
 Run once in a terminal:
 
 ```bash
-claude mcp add --transport http --scope user excalidash https://draw.brauw.dev/api/mcp --header "Authorization: Bearer exd_your_key_here"
+claude mcp add --transport http --scope user excalidash https://<your-host>/api/mcp --header "Authorization: Bearer exd_your_key_here"
 ```
 
 `--scope user` makes it available in every project. Check it with `claude mcp list`; `excalidash` should show as connected.
@@ -72,7 +72,7 @@ Use this if the connector dialog in Option A is not available in your version of
          "args": [
            "-y",
            "mcp-remote",
-           "https://draw.brauw.dev/api/mcp",
+           "https://<your-host>/api/mcp",
            "--header",
            "Authorization:${AUTH_HEADER}"
          ],
@@ -94,7 +94,7 @@ The Codex CLI, IDE extension and desktop app share one config file, `~/.codex/co
 **Recommended: CLI command plus an environment variable**
 
 ```bash
-codex mcp add excalidash --url https://draw.brauw.dev/api/mcp --bearer-token-env-var EXCALIDASH_API_KEY
+codex mcp add excalidash --url https://<your-host>/api/mcp --bearer-token-env-var EXCALIDASH_API_KEY
 ```
 
 Then save the key in that variable and open a new terminal:
@@ -108,7 +108,7 @@ Check it with `codex mcp list`, or `/mcp` inside Codex.
 
 ```toml
 [mcp_servers.excalidash]
-url = "https://draw.brauw.dev/api/mcp"
+url = "https://<your-host>/api/mcp"
 http_headers = { "Authorization" = "Bearer exd_your_key_here" }
 ```
 
@@ -118,7 +118,7 @@ The Admin page's *AI Agents (MCP)* card shows all of these options in **Claude C
 
 Ask Claude: *"List my ExcaliDash drawings."* The first time, Claude asks for permission to use the tool. Allow it.
 
-Then open a drawing in the browser next to Claude and ask for a change, for example *"In my Contakto drawing, add a step called 'Validación' between steps 3 and 4."* You will see Claude join the drawing and draw the change.
+Then open a drawing in the browser next to Claude and ask for a change, for example *"In my Roadmap drawing, add a box called 'Review' between steps 3 and 4."* You will see Claude join the drawing and draw the change.
 
 ### Troubleshooting
 
