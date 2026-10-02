@@ -20,7 +20,7 @@ Self sign-up is usually off. An admin creates the account from **Admin → New U
 2. Create a key with a name that says where it will be used (e.g. "Claude Desktop – laptop"), keeping all four scopes ticked (`drawings:read`, `drawings:write`, `collections:read`, `collections:write`).
 3. Copy the key (it starts with `exd_`). It is shown only once; if you lose it, revoke it and create a new one.
 
-Then connect with **one** of the options below.
+Then connect with **one** of the options below (A–C for Claude, D for Codex).
 
 ### Option A: Claude Desktop connector (recommended, no installs)
 
@@ -86,6 +86,33 @@ Use this if the connector dialog in Option A is not available in your version of
 
    Keep `Authorization:${AUTH_HEADER}` exactly as written, with no space after the colon (a workaround for a Windows bug with spaces in arguments). The space belongs inside `AUTH_HEADER`, between `Bearer` and the key.
 3. Fully quit Claude Desktop (Windows: right-click the tray icon → Quit; macOS: ⌘Q) and open it again.
+
+### Option D: Codex (CLI, IDE extension or desktop app)
+
+The Codex CLI, IDE extension and desktop app share one config file, `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml` on Windows), so set it up once.
+
+**Recommended: CLI command plus an environment variable**
+
+```bash
+codex mcp add excalidash --url https://draw.brauw.dev/api/mcp --bearer-token-env-var EXCALIDASH_API_KEY
+```
+
+Then save the key in that variable and open a new terminal:
+
+- Windows: `setx EXCALIDASH_API_KEY "exd_your_key_here"`
+- macOS / Linux: add `export EXCALIDASH_API_KEY="exd_your_key_here"` to `~/.zshrc` or `~/.bashrc`
+
+Check it with `codex mcp list`, or `/mcp` inside Codex.
+
+**Alternative: key inline in `config.toml`.** Apps started from the dock or Start menu may not see terminal environment variables. Putting the header in the config works everywhere (the key is then stored in that file in plain text):
+
+```toml
+[mcp_servers.excalidash]
+url = "https://draw.brauw.dev/api/mcp"
+http_headers = { "Authorization" = "Bearer exd_your_key_here" }
+```
+
+The Admin page's *AI Agents (MCP)* card shows all of these options in **Claude Code** and **Codex** tabs, with the endpoint filled in.
 
 ### Check that it works
 

@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Bot, Check, Copy, RefreshCw } from 'lucide-react';
+import { Bot, RefreshCw } from 'lucide-react';
 import * as api from '../../api';
+import { CopyBlock, McpSetupTabs } from './McpSetupTabs';
 
 // Admin section for the MCP endpoint AI agents (e.g. Claude) use to edit
 // drawings as live collaborators: kill-switch, connection details, who is
@@ -17,32 +18,6 @@ const timeAgo = (dateStr: string) => {
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
   return `${Math.floor(seconds / 86400)}d ago`;
-};
-
-const CopyBlock: React.FC<{ label: string; value: string }> = ({ label, value }) => {
-  const [copied, setCopied] = useState(false);
-  return (
-    <div>
-      <div className={labelClassName}>{label}</div>
-      <div className="flex items-stretch gap-2">
-        <code className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border-2 border-slate-200 dark:border-neutral-700 bg-slate-50 dark:bg-neutral-800 text-xs text-slate-800 dark:text-neutral-200 font-mono whitespace-pre-wrap break-all">
-          {value}
-        </code>
-        <button
-          type="button"
-          title="Copy"
-          onClick={() => {
-            void navigator.clipboard?.writeText(value);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          }}
-          className="px-3 rounded-xl border-2 border-black dark:border-neutral-600 text-slate-700 dark:text-neutral-200 hover:bg-slate-100 dark:hover:bg-neutral-800 transition-colors"
-        >
-          {copied ? <Check size={16} /> : <Copy size={16} />}
-        </button>
-      </div>
-    </div>
-  );
 };
 
 export const McpCard: React.FC<{ isAdmin: boolean; setError: (message: string) => void }> = ({ isAdmin, setError }) => {
@@ -75,7 +50,6 @@ export const McpCard: React.FC<{ isAdmin: boolean; setError: (message: string) =
   };
 
   const endpoint = status?.endpointUrl ?? '';
-  const claudeCode = `claude mcp add --transport http --scope user excalidash ${endpoint} --header "Authorization: Bearer <your API key>"`;
 
   return (
     <div className={cardClassName}>
@@ -121,17 +95,7 @@ export const McpCard: React.FC<{ isAdmin: boolean; setError: (message: string) =
         </div>
       </div>
 
-      <div className="space-y-4">
-        <CopyBlock label="Connect Claude Code" value={claudeCode} />
-        <p className="text-xs text-slate-600 dark:text-neutral-400">
-          Each person uses their own API key from{' '}
-          <Link to="/profile" className="font-bold underline">Profile → API keys</Link>; the AI then has exactly
-          that person's access. In Claude Desktop, use Settings → Connectors → Add custom connector with
-          {' '}<strong>No sign-in</strong> and a request header <code className="font-mono">Authorization</code> ={' '}
-          <code className="font-mono">Bearer &lt;key&gt;</code>. Full steps:{' '}
-          <a href="https://github.com/braulio-dev/ExcaliDash/blob/main/docs/MCP.md#setup" target="_blank" rel="noreferrer" className="font-bold underline">setup guide</a>.
-        </p>
-      </div>
+      <McpSetupTabs endpoint={endpoint || 'https://<your-host>/api/mcp'} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6">
         <div>
